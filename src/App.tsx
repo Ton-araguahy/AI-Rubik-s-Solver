@@ -1,15 +1,15 @@
-
-
 import { useState, useEffect, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { Cube3D } from './components/Cube3D'
 import { TrainingLoop, TrainingStats } from './logic/TrainingLoop'
-import { CubeState } from './logic/CubeState'
+import { CubeState, Move } from './logic/CubeState'
 
 function App() {
     // Estado do Cubo (Visualização)
     const [cubeState, setCubeState] = useState(new CubeState());
+    const [visualMove, setVisualMove] = useState<Move | null>(null);
+    const [visualAnimationId, setVisualAnimationId] = useState(0);
 
     // Estado das Estatísticas de Treinamento
     const [stats, setStats] = useState<TrainingStats>({
@@ -28,9 +28,14 @@ function App() {
     useEffect(() => {
         // Inicializa o loop de treinamento ao montar o componente
         trainingLoopRef.current = new TrainingLoop(
-            (newStats) => setStats(newStats), // Callback para atualizar stats
-            (newCube) => setCubeState(newCube.clone()) // Callback para atualizar visual (Cria nova ref)
+            (newStats) => setStats(newStats),
+            (newCube, move) => {
+                setCubeState(newCube.clone());
+                setVisualMove(move ?? null);
+                setVisualAnimationId((id) => id + 1);
+            }
         );
+
         // Limpeza ao desmontar
         return () => {
             trainingLoopRef.current?.stop();
@@ -48,18 +53,29 @@ function App() {
     const handleReset = () => {
         trainingLoopRef.current?.reset();
         setCubeState(new CubeState());
+        setVisualMove(null);
+        setVisualAnimationId((id) => id + 1);
     };
 
     return (
         <div className="w-full h-screen bg-brand-dark flex flex-col md:flex-row text-white overflow-hidden">
             {/* Visualização 3D (Esquerda) */}
             <div className="flex-1 h-1/2 md:h-full relative">
-                <Canvas camera={{ position: [6, 6, 6], fov: 45 }}>
+                <Canvas
+                    dpr={[1, 2]}
+                    camera={{ position: [6, 6, 6], fov: 45 }}
+                    gl={{ antialias: true, powerPreference: 'high-performance' }}
+                >
                     <ambientLight intensity={0.5} />
                     <pointLight position={[10, 10, 10]} intensity={1} />
                     <pointLight position={[-10, -10, -10]} intensity={0.5} />
-                    {/* Renderiza o Cubo */}
-                    <Cube3D cubeState={cubeState} />
+
+                    <Cube3D
+                        cubeState={cubeState}
+                        move={visualMove}
+                        animationId={visualAnimationId}
+                    />
+
                     <OrbitControls autoRotate={false} />
                     <gridHelper args={[20, 20, 0x333333, 0x111111]} position={[0, -3, 0]} />
                 </Canvas>
@@ -127,7 +143,7 @@ function App() {
                         Ele recebe recompensas por resolver ou se aproximar da solução.
                     </p>
                     <p>
-                        <span className="text-brand-neon">Visualização</span>: Atualizada quando o agente conclui movimentos.
+                        <span className="text-brand-neon">Visualização</span>: Agora cada movimento é mostrado com uma rotação física da camada.
                     </p>
                 </div>
             </div>
@@ -136,4 +152,3 @@ function App() {
 }
 
 export default App
-
