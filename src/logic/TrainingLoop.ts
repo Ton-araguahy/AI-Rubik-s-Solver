@@ -1,5 +1,4 @@
-
-import { CubeState } from './CubeState';
+import { CubeState, Move } from './CubeState';
 import { RLAgent } from './RLAgent';
 
 export interface TrainingStats {
@@ -27,9 +26,12 @@ export class TrainingLoop {
     };
 
     private onStatsUpdate: (stats: TrainingStats) => void;
-    private onCubeUpdate: (cube: CubeState) => void;
+    private onCubeUpdate: (cube: CubeState, move?: Move) => void;
 
-    constructor(onStatsUpdate: (stats: TrainingStats) => void, onCubeUpdate: (cube: CubeState) => void) {
+    constructor(
+        onStatsUpdate: (stats: TrainingStats) => void,
+        onCubeUpdate: (cube: CubeState, move?: Move) => void
+    ) {
         this.agent = new RLAgent();
         this.cube = new CubeState();
         this.onStatsUpdate = onStatsUpdate;
@@ -48,7 +50,7 @@ export class TrainingLoop {
 
     reset() {
         this.running = false;
-        this.agent = new RLAgent(); // Reinicia o agente (cérebro novo)
+        this.agent = new RLAgent();
         this.currentStats = {
             episode: 0,
             epsilon: 1.0,
@@ -65,36 +67,29 @@ export class TrainingLoop {
         while (this.running) {
             // 1. Embaralhar (Scramble)
             this.cube.reset();
-            // Começa simples: embaralha com 10 movimentos.
-            // Poderíamos aumentar isso progressivamente (Curriculum Learning).
             this.cube.scramble(10);
             this.onCubeUpdate(this.cube);
 
             let state = this.cube.clone();
             let totalReward = 0;
             let steps = 0;
-            const maxSteps = 100; // Limite de passos para evitar loops infinitos
+            const maxSteps = 100;
 
             const experiences = [];
 
             // 2. Tentar Resolver (Episódio)
             while (steps < maxSteps && !state.isSolved() && this.running) {
-                // await new Promise(r => setTimeout(r, 10)); // Descomente para desacelerar e visualizar
-
                 const action = await this.agent.act(state);
                 const move = RLAgent.decodeAction(action);
 
                 const nextState = state.clone();
                 nextState.applyMove(move);
 
-                // Cálculo da Recompensa
-                let reward = -0.1; // Penalidade de tempo (incentiva rapidez)
+                let reward = -0.1;
                 if (nextState.isSolved()) {
-                    reward = 10.0; // Grande recompensa por resolver
+                    reward = 10.0;
                     this.currentStats.wins++;
                 } else {
-                    // Recompensa Heurística (Shaping): Variação no número de peças corretas
-                    // Ajuda o agente a saber se está "esquentando" ou "esfriando"
                     const currentCorrect = state.getCorrectFaceletsCount();
                     const nextCorrect = nextState.getCorrectFaceletsCount();
                     reward += (nextCorrect - currentCorrect) * 0.2;
@@ -112,8 +107,8 @@ export class TrainingLoop {
                 totalReward += reward;
                 steps++;
 
-                this.cube.state = state.state; // Atualiza o cubo visual
-                this.onCubeUpdate(this.cube);
+                this.cube.state = state.state;
+                this.onCubeUpdate(this.cube, move);
 
                 if (state.isSolved()) break;
             }
@@ -132,7 +127,6 @@ export class TrainingLoop {
 
                 this.onStatsUpdate({ ...this.currentStats });
 
-                // Cede controle para a UI atualizar (evita travamento da aba)
                 await new Promise(r => setTimeout(r, 50));
             }
         }
