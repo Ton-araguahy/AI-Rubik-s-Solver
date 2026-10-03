@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>AI Rubik's Cube Solver (Replay Mode)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #0f0f13;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+        }
+
+        #ui {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 360px;
+            height: 100vh;
+            background: rgba(15, 15, 19, 0.94);
+            border-left: 1px solid #7928ca;
+            padding: 16px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            z-index: 2;
+        }
+
+        #hud {
+            position: absolute;
+            left: 16px;
+            bottom: 16px;
+            z-index: 2;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+            max-width: 420px;
+        }
+
+        .var-grid {
+            display: grid;
+            grid-template-columns: 1fr 78px;
+            gap: 6px 8px;
+            align-items: center;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .var-grid input {
+            width: 100%;
+            background: #222;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 4px;
+            box-sizing: border-box;
+        }
+
+        details summary {
+            cursor: pointer;
+            color: #00ff9d;
+            font-weight: bold;
+            margin: 8px 0;
+        }
+
+        h1 {
+            margin-top: 0;
+            color: #00ff9d;
+            font-size: 24px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 4px;
+        }
+
+        .btn-start {
+            background: #00ff9d;
+            color: black;
+        }
+
+        .btn-stop {
+            background: #ff4444;
+            color: white;
+        }
+
+        .btn-reset {
+            background: transparent;
+            border: 1px solid #7928ca;
+            color: #7928ca;
+        }
+
+        .btn-replay {
+            background: #7928ca;
+            color: white;
+            display: none;
+        }
+
+        /* Escondido ate vencer */
+        .replay-controls {
+            display: flex;
+            gap: 5px;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .btn-step {
+            flex: 1;
+            background: #333;
+            color: white;
+            padding: 5px;
+            border: 1px solid #555;
+            cursor: pointer;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #333;
+            font-family: monospace;
+        }
+
+        .stat-label {
+            color: #888;
+        }
+
+        .stat-val {
+            font-weight: bold;
+        }
+    </style>
+    <!-- Bibliotecas Importadas -->
+    <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/",
+          "@tensorflow/tfjs": "https://unpkg.com/@tensorflow/tfjs@4.15.0/dist/tf.fesm.js"
+        }
+      }
+    </script>
+</head>
+
+<body>
+    <div id="ui">
+        <h1>AI Rubik's Solver</h1>
+        <p style="color: #666; font-size: 12px; margin-bottom: 20px;">Modo Curriculum Learning</p>
+
+        <button id="btnStart" class="btn btn-start">INICIAR TREINO</button>
+        <button id="btnStop" class="btn btn-stop">PARAR</button>
+        <button id="btnReset" class="btn btn-reset">RESETAR AGENTE</button>
+
+        <div style="border-top: 1px solid #333; margin: 10px 0;"></div>
+        <button id="btnReplay" class="btn btn-replay">VER ÚLTIMA VITÓRIA</button>
+        <div id="replayControls" class="replay-controls">
+            <button id="btnPrev" class="btn-step">◀ ANT</button>
+            <span id="replayStep" style="padding: 5px; font-family: monospace;">0/0</span>
+            <button id="btnNext" class="btn-step">PROX ▶</button>
+        </div>
+
+        <div style="margin-top: 20px; background: #000; padding: 10px; border-radius: 4px;">
+            <div class="stat-row"><span class="stat-label">Episódios</span><span id="stEpisode"
+                    class="stat-val">0</span>
+            </div>
+            <div class="stat-row"><span class="stat-label" style="color:#00ff9d">Dificuldade (Embaralhar)</span><span
+                    id="stDiff" class="stat-val">1</span></div>
+            <div class="stat-row"><span class="stat-label">Epsilon (Exploração)</span><span id="stEpsilon"
+                    class="stat-val" style="color: yellow">1.00</span></div>
+            <div class="stat-row"><span class="stat-label">Vitórias (Lote)</span><span id="stWins" class="stat-val"
+                    style="color: #00ff9d">0</span></div>
+            <div class="stat-row"><span class="stat-label">Vitórias Totais</span><span id="stTotalWins"
+                    class="stat-val">0</span></div>
+            <div class="stat-row">
+                <span class="stat-label">Vitórias p/ Nível</span>
+                <input id="inWinThresh" type="number" value="1" min="1" max="20"
+                    style="width: 40px; background: #333; color: white; border: 1px solid #555; text-align: center;">
+            </div>
+            <div class="stat-row"><span class="stat-label">Melhor Recompensa</span><span id="stBest"
+                    class="stat-val">-</span>
+            </div>
+        </div>
+        <details open>
+            <summary>Variáveis (mexe ao vivo)</summary>
+            <div class="var-grid">
+                <label>Nível inicial (embaralhamento)</label><input id="vDiff" type="number" min="1" max="20" value="1">
+                <label>Nível máximo</label><input id="vMaxDiff" type="number" min="1" max="30" value="20">
+                <label>Movimentos por tentativa</label><input id="vMaxMoves" type="number" min="1" max="80" value="12">
+                <label>Episódios de treino</label><input id="vTrain" type="number" min="1" max="500" value="100">
+                <label>Episódios de prova</label><input id="vEval" type="number" min="1" max="200" value="20">
+                <label>Epsilon inicial</label><input id="vEps" type="number" min="0" max="1" step="0.01" value="1">
+                <label>Epsilon mínimo</label><input id="vEpsMin" type="number" min="0" max="1" step="0.01" value="0.1">
+                <label>Decaimento epsilon</label><input id="vEpsDecay" type="number" min="0.9" max="1" step="0.001" value="0.995">
+                <label>Gamma</label><input id="vGamma" type="number" min="0" max="1" step="0.01" value="0.95">
+                <label>Learning rate</label><input id="vLr" type="number" min="0.0001" max="0.01" step="0.0001" value="0.001">
+                <label>Pena por movimento</label><input id="vStep" type="number" step="0.05" value="0.1">
+                <label>Recompensa ao resolver</label><input id="vSolve" type="number" step="1" value="10">
+                <label>Recompensa por peça certa</label><input id="vProg" type="number" step="0.1" value="0.5">
+                <label>Memória (replay)</label><input id="vMem" type="number" min="100" max="20000" step="100" value="2000">
+                <label>Pausa visual (ms)</label><input id="vPause" type="number" min="0" max="1000" value="40">
+            </div>
+            <button id="btnApply" class="btn btn-reset" style="margin-top:10px">APLICAR VARIÁVEIS</button>
+            <button id="btnScramble" class="btn btn-step" style="width:100%; margin-bottom:8px">EMBARALHAR CUBO AGORA</button>
+        </details>
+
+        <div id="log"
+            style="font-family: monospace; font-size: 10px; color: #555; margin-top: 12px; white-space: pre-wrap; height: 140px; overflow-y: auto;">
+        </div>
+    </div>
+    <div id="hud">Cubo resolvido. Arraste para girar a câmera. Ajuste as variáveis e clique em iniciar, ou embaralhe agora.</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as tf from '@tensorflow/tfjs';
+
+        // --- LÓGICA DO CUBO ---
+        const MOVES = ['U', "U'", 'D', "D'", 'L', "L'", 'R', "R'", 'F', "F'", 'B', "B'"];
+        // CORES NEON BRILHANTES
+        const COLOR_MAP = { 'W': 0xffffff, 'O': 0xffaa00, 'G': 0x00ff00, 'R': 0xff3333, 'B': 0x3333ff, 'Y': 0xffff00 };
+        const COLORS_KEY = ['W', 'O', 'G', 'R', 'B', 'Y'];
+
+        class CubeState {
+            constructor() {
+                this.reset();
+            }
+            // Reseta o cubo para o estado resolvido
+            reset() {
+                this.state = COLORS_KEY.map(c => Array(3).fill(null).map(() => Array(3).fill(c)));
+            }
+            // Cria uma cópia do estado atual (para simulações)
+            clone() {
+                const c = new CubeState();
+                c.state = JSON.parse(JSON.stringify(this.state));
+                return c;
+            }
+            // Verifica se o cubo está totalmente resolvido
+            isSolved() {
+                for (let f = 0; f < 6; f++) {
+                    const center = this.state[f][1][1];
+                    for (let r = 0; r < 3; r++) {
+                        for (let c = 0; c < 3; c++) {
+                            if (this.state[f][r][c] !== center) return false;
+                        }
+                    }
+                }
+                return true;
+            }
+            // Conta quantas peças estão na face correta (para recompensa parcial)
+            getCorrectCount() {
+                let count = 0;
+                for (let f = 0; f < 6; f++) {
+                    for (let r = 0; r < 3; r++) {
+                        for (let c = 0; c < 3; c++) {
+                            if (this.state[f][r][c] === COLORS_KEY[f]) count++;
+                        }
+                    }
+                }
+                return count;
+            }
+            // Transforma o estado em uma lista plana (vetor) de números para a Rede Neural.
+            // Mapeia cada cor para um número inteiro (0-5). 
+            // Entrada total = 6 faces * 3 linhas * 3 colunas = 54 inputs.
+            // (Nota: One-Hot Encoding poderia ser melhor, mas inteiros funcionam para redes simples)
+            getEncoding() {
+                const map = { 'W': 0, 'O': 1, 'G': 2, 'R': 3, 'B': 4, 'Y': 5 };
+                const flat = [];
+                for (let f = 0; f < 6; f++) {
+                    for (let r = 0; r < 3; r++) {
+                        for (let c = 0; c < 3; c++) {
+                            flat.push(map[this.state[f][r][c]]);
+                        }
+                    }
+                }
+                return flat;
+            }
+            // Rotaciona uma face (matriz 3x3)
+            rotateFace(faceIdx, clockwise) {
+                const s = this.state[faceIdx];
+                if (clockwise) {
+                    this.state[faceIdx] = [
+                        [s[2][0], s[1][0], s[0][0]],
+                        [s[2][1], s[1][1], s[0][1]],
+                        [s[2][2], s[1][2], s[0][2]]
+                    ];
+                } else {
+                    this.state[faceIdx] = [
+                        [s[0][2], s[1][2], s[2][2]],
+                        [s[0][1], s[1][1], s[2][1]],
+                        [s[0][0], s[1][0], s[2][0]]
+                    ];
+                }
+            }
+
+            // Aplica um movimento (ex: 'U', "R'") alterando as cores adjacentes
+            applyMove(move) {
+                const cw = !move.endsWith("'");
+                const base = move.replace("'", "");
+                const s = this.state;
+                let temp;
+
+                let fIdx = 0;
+                if (base === 'U') fIdx = 0; if (base === 'L') fIdx = 1; if (base === 'F') fIdx = 2;
+                if (base === 'R') fIdx = 3; if (base === 'B') fIdx = 4; if (base === 'D') fIdx = 5;
+
+                this.rotateFace(fIdx, cw);
+
+                if (base === 'U') {
+                    if (cw) {
+                        temp = [...s[2][0]]; s[2][0] = s[3][0]; s[3][0] = s[4][0]; s[4][0] = s[1][0]; s[1][0] = temp;
+                    } else {
+                        temp = [...s[2][0]]; s[2][0] = s[1][0]; s[1][0] = s[4][0]; s[4][0] = s[3][0]; s[3][0] = temp;
+                    }
+                } else if (base === 'D') {
+                    if (cw) {
+                        temp = [...s[2][2]]; s[2][2] = s[1][2]; s[1][2] = s[4][2]; s[4][2] = s[3][2]; s[3][2] = temp;
+                    } else {
+                        temp = [...s[2][2]]; s[2][2] = s[3][2]; s[3][2] = s[4][2]; s[4][2] = s[1][2]; s[1][2] = temp;
+                    }
+                } else if (base === 'F') {
+                    if (cw) {
+                        temp = [s[0][2][0], s[0][2][1], s[0][2][2]];
+                        s[0][2][0] = s[1][2][2]; s[0][2][1] = s[1][1][2]; s[0][2][2] = s[1][0][2];
+                        s[1][0][2] = s[5][0][0]; s[1][1][2] = s[5][0][1]; s[1][2][2] = s[5][0][2];
+                        s[5][0][0] = s[3][2][0]; s[5][0][1] = s[3][1][0]; s[5][0][2] = s[3][0][0];
+                        s[3][0][0] = temp[0]; s[3][1][0] = temp[1]; s[3][2][0] = temp[2];
+                    } else {
+                        temp = [s[0][2][0], s[0][2][1], s[0][2][2]];
+                        s[0][2][0] = s[3][0][0]; s[0][2][1] = s[3][1][0]; s[0][2][2] = s[3][2][0];
+                        s[3][0][0] = s[5][0][2]; s[3][1][0] = s[5][0][1]; s[3][2][0] = s[5][0][0];
+                        s[5][0][0] = s[1][0][2]; s[5][0][1] = s[1][1][2]; s[5][0][2] = s[1][2][2];
+                        s[1][0][2] = temp[2]; s[1][1][2] = temp[1]; s[1][2][2] = temp[0];
+                    }
+                } else if (base === 'B') {
+                    if (cw) {
+                        temp = [s[0][0][0], s[0][0][1], s[0][0][2]];
+                        s[0][0][0] = s[3][0][2]; s[0][0][1] = s[3][1][2]; s[0][0][2] = s[3][2][2];
+                        s[3][0][2] = s[5][2][2]; s[3][1][2] = s[5][2][1]; s[3][2][2] = s[5][2][0];
+                        s[5][2][0] = s[1][0][0]; s[5][2][1] = s[1][1][0]; s[5][2][2] = s[1][2][0];
+                        s[1][0][0] = temp[2]; s[1][1][0] = temp[1]; s[1][2][0] = temp[0];
+                    } else {
+                        temp = [s[0][0][0], s[0][0][1], s[0][0][2]];
+                        s[0][0][0] = s[1][2][0]; s[0][0][1] = s[1][1][0]; s[0][0][2] = s[1][0][0];
+                        s[1][0][0] = s[5][2][0]; s[1][1][0] = s[5][2][1]; s[1][2][0] = s[5][2][2];
+                        s[5][2][0] = s[3][2][2]; s[5][2][1] = s[3][1][2]; s[5][2][2] = s[3][0][2];
+                        s[3][0][2] = temp[0]; s[3][1][2] = temp[1]; s[3][2][2] = temp[2];
+                    }
+                } else if (base === 'L') {
+                    if (cw) {
+                        temp = [s[0][0][0], s[0][1][0], s[0][2][0]];
+                        s[0][0][0] = s[4][2][2]; s[0][1][0] = s[4][1][2]; s[0][2][0] = s[4][0][2];
+                        s[4][0][2] = s[5][2][0]; s[4][1][2] = s[5][1][0]; s[4][2][2] = s[5][0][0];
+                        s[5][0][0] = s[2][0][0]; s[5][1][0] = s[2][1][0]; s[5][2][0] = s[2][2][0];
+                        s[2][0][0] = temp[0]; s[2][1][0] = temp[1]; s[2][2][0] = temp[2];
+                    } else {
+                        temp = [s[0][0][0], s[0][1][0], s[0][2][0]];
+                        s[0][0][0] = s[2][0][0]; s[0][1][0] = s[2][1][0]; s[0][2][0] = s[2][2][0];
+                        s[2][0][0] = s[5][0][0]; s[2][1][0] = s[5][1][0]; s[2][2][0] = s[5][2][0];
+                        s[5][0][0] = s[4][2][2]; s[5][1][0] = s[4][1][2]; s[5][2][0] = s[4][0][2];
+                        s[4][0][2] = temp[2]; s[4][1][2] = temp[1]; s[4][2][2] = temp[0];
+                    }
+                } else if (base === 'R') {
+                    if (cw) {
+                        temp = [s[2][0][2], s[2][1][2], s[2][2][2]];
+                        s[2][0][2] = s[5][0][2]; s[2][1][2] = s[5][1][2]; s[2][2][2] = s[5][2][2];
+                        s[5][0][2] = s[4][2][0]; s[5][1][2] = s[4][1][0]; s[5][2][2] = s[4][0][0];
+                        s[4][0][0] = s[0][2][2]; s[4][1][0] = s[0][1][2]; s[4][2][0] = s[0][0][2];
+                        s[0][0][2] = temp[0]; s[0][1][2] = temp[1]; s[0][2][2] = temp[2];
+                    } else {
+                        temp = [s[2][0][2], s[2][1][2], s[2][2][2]];
+                        s[2][0][2] = s[0][0][2]; s[2][1][2] = s[0][1][2]; s[2][2][2] = s[0][2][2];
+                        s[0][0][2] = s[4][2][0]; s[0][1][2] = s[4][1][0]; s[0][2][2] = s[4][0][0];
+                        s[4][0][0] = s[5][2][2]; s[4][1][0] = s[5][1][2]; s[4][2][0] = s[5][0][2];
+                        s[5][0][2] = temp[0]; s[5][1][2] = temp[1]; s[5][2][2] = temp[2];
+                    }
+                }
+            }
+        }
+
+        // --- AGENTE DE APRENDIZADO POR REFORÇO (RL) ---
+        class RLAgent {
+            constructor() {
+                this.model = this.createModel();
+                this.targetModel = this.createModel(); // Rede Alvo do Double DQN
+                this.updateTargetModel(); // Sincroniza inicialmente
+
+                this.epsilon = 1.0; // Taxa de exploração (começa alta)
+                this.epsilonMin = 0.1; // Mínimo de exploração
+                this.epsilonDecay = 0.995; // Decaimento por treino
+                this.gamma = 0.95;
+                this.learningRate = 0.001;
+
+                this.memory = [];
+                this.memorySize = 2000;
+                this.trainSteps = 0;
+                this.updateTargetEvery = 500; // Sincroniza a cada 500 passos
+            }
+
+            // Cria a Rede Neural (Cérebro do Agente) usando TensorFlow.js
+            // Arquitetura:
+            // Input (324) -> Dense(128, ReLU) -> Dense(128, ReLU) -> Output(12, Linear)
+            // Usamos 'Linear' na saída porque queremos prever valores Q (recompensas futuras), não probabilidades.
+            createModel() {
+                const m = tf.sequential();
+                // Camada de Entrada + Oculta 1
+                // 324 entradas? (Na verdade o código original usava inputShape [324] mas o encoding gera 54. 
+                // Se usarmos One-Hot de 54 * 6 cores = 324. O método 'toTensor' faz esse one-hot manual.)
+                m.add(tf.layers.dense({ units: 128, inputShape: [324], activation: 'relu' }));
+
+                // Camada Oculta 2 (Processamento lógico mais profundo)
+                m.add(tf.layers.dense({ units: 128, activation: 'relu' }));
+
+                // Camada de Saída
+                // 1 neurônio para cada movimento possível. O valor representa "quão bom" é aquele movimento.
+                m.add(tf.layers.dense({ units: 12, activation: 'linear' }));
+
+                // Compilador: Adam é um otimizador padrão excelente.
+                // Loss MeanSquaredError: Tentamos minimizar a diferença entre nossa previsão e a realidade (recompensa obtida).
+                m.compile({ optimizer: tf.train.adam(this.learningRate || 0.001), loss: 'meanSquaredError' });
+                return m;
+            }
+
+            // Copia os pesos da rede principal para a rede alvo (Estabilidade)
+            async updateTargetModel() {
+                let weights = [];
+                this.model.layers.forEach(l => weights.push(l.getWeights()));
+                this.targetModel.layers.forEach((l, i) => l.setWeights(weights[i]));
+            }
+
+            // Decide qual ação tomar (Exploração vs Exploração)
+            async act(state, epsilonOverride = null) {
+                const eps = epsilonOverride !== null ? epsilonOverride : this.epsilon;
+                // Epsilon-Greedy: As vezes chuta (aleatório) pra aprender coisas novas
+                if (Math.random() < eps) {
+                    return Math.floor(Math.random() * 12);
+                }
+                // Senão, usa o cérebro pra escolher a melhor jogada
+                const tensor = this.toTensor(state);
+                const pred = this.model.predict(tensor);
+                const action = (await pred.argMax(1).data())[0];
+                tensor.dispose(); pred.dispose();
+                return action;
+            }
+
+            // Converte o estado do jogo para um tensor que a IA entende.
+            // Aplica One-Hot Encoding: Transforma cada cor (0-5) em um vetor de 6 posições.
+            // Ex: Cor 0 vira [1,0,0,0,0,0]. Cor 2 vira [0,0,1,0,0,0].
+            // Isso ajuda a rede neural a entender que as cores são categorias distintas, não números sequenciais.
+            toTensor(state) {
+                const flat = state.getEncoding(); // Pega vetor de 54 números
+                const buffer = tf.buffer([1, 324]); // 54 faces * 6 cores = 324 posições
+                flat.forEach((v, i) => buffer.set(1, 0, i * 6 + v)); // Seta 1 na posição correta da cor
+                return buffer.toTensor();
+            }
+
+            addToMemory(experiences) {
+                this.memory.push(...experiences);
+                if (this.memory.length > this.memorySize) {
+                    this.memory.splice(0, this.memory.length - this.memorySize);
+                }
+            }
+
+            // O Processo de Treinamento (Replay Buffer + Double DQN)
+            async train() {
+                if (this.memory.length < 100) return;
+                this.trainSteps++;
+
+                // Sincroniza a Rede Alvo periodicamente
+                if (this.trainSteps % this.updateTargetEvery === 0) {
+                    await this.updateTargetModel();
+                    // console.log("Target Synced");
+                }
+
+                const batchSize = 128; // Tamanho do lote de aprendizado
+                const batch = [];
+                for (let i = 0; i < batchSize; i++) {
+                    const idx = Math.floor(Math.random() * this.memory.length);
+                    batch.push(this.memory[idx]);
+                }
+
+                const statesArr = batch.map(e => this.toTensor(e.state));
+                const nextStatesArr = batch.map(e => this.toTensor(e.nextState));
+
+                const states = tf.concat(statesArr);
+                const nextStates = tf.concat(nextStatesArr);
+
+                // Lógica Double DQN: 
+                // 1. Seleção: Rede Online escolhe o melhor movimento futuro
+                const nextActionsUnsync = this.model.predict(nextStates);
+                const nextActions = await nextActionsUnsync.argMax(1).data();
+
+                // 2. Avaliação: Rede Alvo calcula o valor desse movimento (Mais estável)
+                const nextQs = this.targetModel.predict(nextStates);
+                const nextQsData = await nextQs.array();
+
+                const currQs = this.model.predict(states);
+                const currData = await currQs.array();
+
+                for (let i = 0; i < batch.length; i++) {
+                    const { action, reward, done } = batch[i];
+                    let target = reward;
+                    if (!done) {
+                        // Fórmula do Double DQN (Deep Q-Network):
+                        // Q(s,a) = Recompensa + (Fator de Desconto * Q_Alvo(s', Melhor_Ação_Online))
+                        // Isso evita que o modelo seja "otimista demais" nas previsões.
+                        const bestNextAction = nextActions[i];
+                        target += this.gamma * nextQsData[i][bestNextAction];
+                    }
+                    // Atualizamos apenas o valor Q da ação que realmente tomamos.
+                    // As outras ações mantêm seus valores antigos (o modelo prevê e nós usamos a própria previsão como alvo para não alterar o que não sabemos).
+                    currData[i][action] = target;
+                }
+
+                await this.model.fit(states, tf.tensor2d(currData), { epochs: 1, verbose: 0 });
+
+                states.dispose(); nextStates.dispose(); currQs.dispose(); nextQs.dispose(); nextActionsUnsync.dispose();
+                statesArr.forEach(t => t.dispose()); nextStatesArr.forEach(t => t.dispose());
+
+                if (this.epsilon > this.epsilonMin) this.epsilon *= this.epsilonDecay;
+            }
+        }
+
+        // --- UI E VISUALIZAÇÃO ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0f0f13);
+
+        function viewSize() {
+            const panel = 360;
+            const w = Math.max(320, window.innerWidth - panel);
+            const h = Math.max(320, window.innerHeight);
+            return { w, h };
+        }
+
+        const view = viewSize();
+        const camera = new THREE.PerspectiveCamera(45, view.w / view.h, 0.1, 100);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setSize(view.w, view.h);
+        document.body.appendChild(renderer.domElement);
+        renderer.domElement.style.position = 'absolute';
+        renderer.domElement.style.left = '0';
+        renderer.domElement.style.top = '0';
+        renderer.domElement.style.zIndex = '1';
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        camera.position.set(6, 5, 6);
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        const light = new THREE.PointLight(0xffffff, 5.0);
+        light.position.set(10, 20, 10);
+        scene.add(light);
+
+        const fillLight = new THREE.PointLight(0xffffff, 4.0);
+        fillLight.position.set(-10, -10, -10);
+        scene.add(fillLight);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 3.0));
+
+        const cubeGroup = new THREE.Group();
+        scene.add(cubeGroup);
+        scene.add(new THREE.GridHelper(20, 20, 0x333333, 0x111111));
+
+        let currentCube = new CubeState();
+
+        function renderCube() {
+            while (cubeGroup.children.length > 0) cubeGroup.remove(cubeGroup.children[0]);
+
+            const core = new THREE.Mesh(new THREE.BoxGeometry(2.9, 2.9, 2.9), new THREE.MeshStandardMaterial({ color: 0x1a1a1a }));
+            cubeGroup.add(core);
+
+            const addSticker = (c, x, y, z, rx, ry, rz) => {
+                const geom = new THREE.BoxGeometry(0.9, 0.9, 0.05);
+                // BRILHO EMISSIVO: Faz as cores saltarem independente da luz
+                const mat = new THREE.MeshStandardMaterial({
+                    color: COLOR_MAP[c],
+                    roughness: 0.0,
+                    metalness: 0.0,
+                    emissive: COLOR_MAP[c],
+                    emissiveIntensity: 0.4
+                });
+                const mesh = new THREE.Mesh(geom, mat);
+                mesh.position.set(x, y, z);
+                mesh.rotation.set(rx, ry, rz);
+                cubeGroup.add(mesh);
+            };
+
+            for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) addSticker(currentCube.state[0][r][c], (c - 1), 1.5, (r - 1), -Math.PI / 2, 0, 0);
+            for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) addSticker(currentCube.state[1][r][c], -1.5, (1 - r), (c - 1), 0, -Math.PI / 2, 0);
+            for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) addSticker(currentCube.state[2][r][c], (c - 1), (1 - r), 1.5, 0, 0, 0);
+            for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) addSticker(currentCube.state[3][r][c], 1.5, (1 - r), (1 - c), 0, Math.PI / 2, 0);
+            for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) addSticker(currentCube.state[4][r][c], (1 - c), (1 - r), -1.5, 0, Math.PI, 0);
+            for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) addSticker(currentCube.state[5][r][c], (c - 1), -1.5, (1 - r), Math.PI / 2, 0, 0);
+        }
+
+        renderCube();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+        setTimeout(() => log('Cubo resolvido na tela. Ajuste as variáveis ou clique em embaralhar.'), 0);
+
+        window.addEventListener('resize', () => {
+            const size = viewSize();
+            camera.aspect = size.w / size.h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(size.w, size.h);
+        });
+
+        // --- LÓGICA PRINCIPAL ---
+        const agent = new RLAgent();
+        let running = false;
+
+        const uiElems = {
+            ep: document.getElementById('stEpisode'),
+            diff: document.getElementById('stDiff'),
+            eps: document.getElementById('stEpsilon'),
+            wins: document.getElementById('stWins'),
+            totalWins: document.getElementById('stTotalWins'),
+            rew: document.getElementById('stReward'),
+            best: document.getElementById('stBest'),
+            log: document.getElementById('log'),
+            start: document.getElementById('btnStart'),
+            stop: document.getElementById('btnStop'),
+            reset: document.getElementById('btnReset'),
+            // UI de Replay
+            replay: document.getElementById('btnReplay'),
+            repControls: document.getElementById('replayControls'),
+            btnPrev: document.getElementById('btnPrev'),
+            btnNext: document.getElementById('btnNext'),
+            repStep: document.getElementById('replayStep'),
+            winThresh: document.getElementById('inWinThresh')
+        };
+
+        const cfg = {
+            maxMoves: 12,
+            trainBlock: 100,
+            evalBlock: 20,
+            pauseMs: 40,
+            stepPenalty: 0.1,
+            solveReward: 10,
+            progressReward: 0.5,
+            maxDiff: 20
+        };
+
+        function readCfg() {
+            const num = (id, fallback) => {
+                const v = parseFloat(document.getElementById(id).value);
+                return Number.isFinite(v) ? v : fallback;
+            };
+            cfg.maxMoves = Math.max(1, num('vMaxMoves', 12));
+            cfg.trainBlock = Math.max(1, num('vTrain', 100));
+            cfg.evalBlock = Math.max(1, num('vEval', 20));
+            cfg.pauseMs = Math.max(0, num('vPause', 40));
+            cfg.stepPenalty = num('vStep', 0.1);
+            cfg.solveReward = num('vSolve', 10);
+            cfg.progressReward = num('vProg', 0.5);
+            cfg.maxDiff = Math.max(1, num('vMaxDiff', 20));
+            agent.epsilon = Math.min(1, Math.max(0, num('vEps', agent.epsilon)));
+            agent.epsilonMin = Math.min(1, Math.max(0, num('vEpsMin', 0.1)));
+            agent.epsilonDecay = Math.min(1, Math.max(0.9, num('vEpsDecay', 0.995)));
+            agent.gamma = Math.min(1, Math.max(0, num('vGamma', 0.95)));
+            agent.memorySize = Math.max(100, num('vMem', 2000));
+            const lr = num('vLr', agent.learningRate);
+            if (lr !== agent.learningRate) {
+                agent.learningRate = lr;
+                agent.model.compile({ optimizer: tf.train.adam(lr), loss: 'meanSquaredError' });
+                agent.targetModel.compile({ optimizer: tf.train.adam(lr), loss: 'meanSquaredError' });
+            }
+            const startDiff = Math.max(1, Math.min(cfg.maxDiff, num('vDiff', difficulty)));
+            return startDiff;
+        }
+
+        function setHud(msg) {
+            const hud = document.getElementById('hud');
+            if (hud) hud.innerText = msg;
+        }
+
+        let stats = { ep: 0, wins: 0, totalWins: 0, best: -Infinity };
+        let difficulty = 1;
+
+        // ESTADO DO REPLAY
+        let lastWin = null; // { startState, moves: [] }
+        let replayMode = false;
+        let replayIndex = 0;
+
+        function log(msg) {
+            uiElems.log.innerText = msg + "\n" + uiElems.log.innerText;
+        }
+
+        // --- SISTEMA DE PERSISTÊNCIA (SAVE/LOAD) ---
+        // Salva o modelo (cérebro) e os metadados (vitórias, dificuldade) no navegador.
+        // Isso permite continuar o treinamento mesmo se fechar a aba.
+        async function saveProgress() {
+            try {
+                // Salva o modelo neural no sistema de arquivos virtual do navegador (IndexedDB/LocalStorage)
+                await agent.model.save('localstorage://rubiks-model');
+
+                const data = {
+                    stats: stats,
+                    difficulty: difficulty,
+                    epsilon: agent.epsilon,
+                    // Não salvamos 'agent.memory' (Experiências passadas) porque é muito grande (JSON pesado)
+                    // e o navegador tem limite de 5MB no LocalStorage. O agente "esquece" as memórias
+                    // específicas, mas mantém o que aprendeu nos pesos da rede.
+                };
+                localStorage.setItem('rubiks-data', JSON.stringify(data));
+                log("Progresso Salvo Automaticamente (Modelo + Stats).");
+            } catch (e) {
+                console.error("Falha ao salvar", e);
+            }
+        }
+
+        // Carrega tudo de volta ao abrir a página
+        async function loadProgress() {
+            try {
+                const json = localStorage.getItem('rubiks-data');
+                if (json) {
+                    const data = JSON.parse(json);
+                    stats = data.stats || stats;
+                    difficulty = data.difficulty || 1;
+                    agent.epsilon = data.epsilon || 1.0;
+
+                    // Carregar Modelo Neural
+                    try {
+                        const loadedModel = await tf.loadLayersModel('localstorage://rubiks-model');
+                        agent.model = loadedModel;
+                        // É necessário recompilar após carregar
+                        agent.model.compile({ optimizer: tf.train.adam(0.001), loss: 'meanSquaredError' });
+                    } catch (err) {
+                        log("Nenhum modelo salvo encontrado, iniciando do zero.");
+                    }
+
+                    // Atualizar a Interface Gráfica
+                    uiElems.ep.innerText = stats.ep;
+                    uiElems.totalWins.innerText = stats.totalWins;
+                    uiElems.diff.innerText = difficulty;
+                    uiElems.eps.innerText = agent.epsilon.toFixed(3);
+                    log("Progresso Carregado com Sucesso!");
+                }
+            } catch (e) {
+                console.error("Falha ao carregar", e);
+            }
+        }
+
+        // Loop Principal de Treinamento
+        // Roda infinitamente enquanto 'running' for true.
+        // Implementa a lógica de Curriculum Learning e Alternância entre Treino/Avaliação.
+        async function trainLoop() {
+            log("Iniciando Loop Contínuo de Treinamento...");
+            const MAX_MOVES = cfg.maxMoves;
+            const TRAIN_BLOCK = cfg.trainBlock;
+            const EVAL_BLOCK = cfg.evalBlock;
+            const PAUSE_DELAY_MS = cfg.pauseMs;
+
+            let phase = 'TRAIN'; // Fase Atual: 'TRAIN' (Aprender/Errar) ou 'EVAL' (Prova/Sem dicas)
+            let phaseCount = 0; // Contador de episódios na fase atual
+            let phaseWins = 0;  // Contador de vitórias na fase atual
+
+            while (running) {
+                // Modo Turbo: Executa vários episódios por frame para acelerar
+                const BATCH_SIZE = turbo ? 50 : 1;
+
+                for (let b = 0; b < BATCH_SIZE; b++) {
+                    if (!running) break;
+
+                    // Determinar Modo
+                    const isEval = phase === 'EVAL';
+                    const currentLimit = isEval ? EVAL_BLOCK : TRAIN_BLOCK;
+
+                    currentCube.reset();
+                    for (let m = 0; m < difficulty; m++) {
+                        let mvIdx = Math.floor(Math.random() * 12);
+                        currentCube.applyMove(MOVES[mvIdx]);
+                    }
+                    let startEpisodeState = JSON.parse(JSON.stringify(currentCube.state));
+
+                    let state = currentCube.clone();
+                    let steps = 0;
+                    let solved = false;
+                    let episodeExp = [];
+                    let episodeMoves = [];
+
+                    while (steps < MAX_MOVES && !solved) {
+                        // O Agente decide o movimento (Se for EVAL, forçamos epsilon=0 para ele sempre tentar o melhor)
+                        const action = await agent.act(state, isEval ? 0.0 : null);
+                        const move = MOVES[action];
+                        episodeMoves.push(move);
+
+                        // Aplica o movimento e observa o resultado
+                        const nextState = state.clone();
+                        nextState.applyMove(move);
+
+                        solved = nextState.isSolved();
+
+                        // Sistema de Recompensas (Pontuação)
+                        // -0.1 por passo (Incentiva a ser rápido)
+                        let reward = -cfg.stepPenalty;
+                        if (solved) {
+                            reward = cfg.solveReward;
+                            stats.totalWins++;
+                            phaseWins++;
+
+                            if (isEval) {
+                                lastWin = {
+                                    start: startEpisodeState,
+                                    moves: [...episodeMoves]
+                                };
+                                uiElems.replay.style.display = 'block';
+                                // log(`>>> EVAL WIN! Solved in ${steps+1}.`);
+                            }
+                        } else {
+                            reward += (nextState.getCorrectCount() - state.getCorrectCount()) * cfg.progressReward;
+                        }
+
+                        if (!isEval) {
+                            episodeExp.push({ state, action, reward, nextState, done: solved });
+                        }
+                        state = nextState;
+                        steps++;
+                        if (solved) break;
+
+                        if (!turbo) {
+                            currentCube.state = state.state;
+                            renderCube();
+                            await new Promise(r => setTimeout(r, 0));
+                        } else if (steps % 5 === 0) {
+                            await new Promise(r => setTimeout(r, 0));
+                        }
+                    }
+
+                    if (!isEval) {
+                        agent.addToMemory(episodeExp);
+                        await agent.train();
+                        stats.ep++;
+                    }
+
+                    // Atualizar Stats
+                    phaseCount++;
+                    uiElems.ep.innerText = stats.ep;
+                    uiElems.wins.innerText = `${phaseWins}/${phaseCount} (${phase})`;
+                    uiElems.totalWins.innerText = stats.totalWins;
+
+                    // Fim da Fase?
+                    if (phaseCount >= currentLimit) {
+                        uiElems.eps.innerText = agent.epsilon.toFixed(3);
+                        uiElems.diff.innerText = difficulty;
+
+                        const winRate = phaseWins / currentLimit;
+                        log(`${phase} CONCLUÍDO. Vits: ${phaseWins}/${currentLimit}. Taxa: ${(winRate * 100).toFixed(0)}%`);
+
+                        if (phase === 'TRAIN') {
+                            // Trocar para EVAL
+                            phase = 'EVAL';
+                            phaseCount = 0;
+                            phaseWins = 0;
+                        } else {
+
+                            // Fim do EVAL
+                            // Checar Level Up (Baseado no Input do Usuário)
+                            const reqWins = parseInt(uiElems.winThresh.value) || 20;
+                            const reqRate = reqWins; // Agora usamos valor absoluto, ex: 20 de 20
+
+                            if (phaseWins >= reqRate && difficulty < cfg.maxDiff) {
+                                difficulty++;
+                                log(`>>> 🏆 LEVEL UP! Dificuldade ${difficulty}`);
+                            } else {
+                                // Se falhar, reduzimos um pouco para não ficar preso pra sempre? 
+                                // O usuário pediu 100% de 100? "aumentar o nivel apenas qd ele acertar 100% de 100" (User request #192)
+                                // O input atual é "Vitórias p/ Nível", default 20.
+                                log(`Eval: ${phaseWins}/${currentLimit} (Meta: ${reqWins}). Mantendo nível.`);
+                            }
+
+                            // Auto-Save
+                            if (phaseCount % 20 === 0 || difficulty > 1) { // Salvar com frequencia razoavel
+                                await saveProgress();
+                            }
+
+                            // Voltar para TRAIN
+                            phase = 'TRAIN';
+                            phaseCount = 0;
+                            phaseWins = 0;
+
+                            if (!turbo) await new Promise(r => setTimeout(r, PAUSE_DELAY_MS));
+                        }
+                    }
+
+                    // Yield para UI no modo Turbo
+                    if (turbo) await new Promise(r => setTimeout(r, 0));
+                }
+            }
+            log("Parado.");
+        }
+
+        // Lógica do botão Load
+        const btnLoad = document.createElement('button');
+        btnLoad.innerText = "RESUMIR SESSÃO ANTERIOR";
+        btnLoad.className = "btn";
+        btnLoad.style.border = "1px solid #00ff9d";
+        btnLoad.style.color = "#00ff9d";
+        btnLoad.style.background = "transparent";
+        btnLoad.onclick = async () => {
+            await loadProgress();
+            log("Dados Carregados. Pressione START para continuar.");
+        };
+        // Inserir depois do Stop
+        uiElems.stop.parentNode.insertBefore(btnLoad, uiElems.reset);
+
+        // Lógica do botão Turbo
+        const btnTurbo = document.createElement('button');
+        btnTurbo.innerText = "⚡ MODO TURBO (OFF)";
+        btnTurbo.className = "btn";
+        btnTurbo.style.border = "1px solid #ffff00";
+        btnTurbo.style.color = "#ffff00";
+        btnTurbo.style.background = "transparent";
+        let turbo = false;
+
+        btnTurbo.onclick = () => {
+            turbo = !turbo;
+            btnTurbo.innerText = turbo ? "⚡ MODO TURBO (ON)" : "⚡ MODO TURBO (OFF)";
+            btnTurbo.style.background = turbo ? "rgba(255, 255, 0, 0.2)" : "transparent";
+            log(turbo ? "Modo Turbo ON: Renderização desativada para velocidade." : "Modo Turbo OFF: Renderização ativada.");
+        };
+        // Inserir antes do Start
+        uiElems.start.parentNode.insertBefore(btnTurbo, uiElems.start);
+
+        uiElems.start.onclick = () => {
+            if (running) return;
+            if (replayMode) exitReplayMode();
+            difficulty = readCfg();
+            uiElems.diff.innerText = String(difficulty);
+            uiElems.eps.innerText = agent.epsilon.toFixed(3);
+            running = true;
+            uiElems.repControls.style.display = 'none';
+            setHud("Treino rodando. Cubo embaralha e gira sozinho.");
+            trainLoop();
+        };
+
+        uiElems.stop.onclick = () => {
+            running = false;
+        };
+
+        uiElems.reset.onclick = () => {
+            running = false;
+            stats = { ep: 0, wins: 0, totalWins: 0, best: -Infinity };
+            const startDiff = readCfg();
+            agent.epsilon = parseFloat(document.getElementById('vEps').value) || 1;
+            agent.memory = [];
+            difficulty = startDiff;
+            currentCube.reset();
+            renderCube();
+            uiElems.ep.innerText = "0";
+            uiElems.diff.innerText = String(difficulty);
+            uiElems.eps.innerText = agent.epsilon.toFixed(3);
+            lastWin = null;
+            uiElems.replay.style.display = 'none';
+            exitReplayMode();
+            setHud("Agente zerado. Cubo resolvido na tela.");
+            log("Agente resetado.");
+        };
+
+        document.getElementById('btnApply').onclick = () => {
+            const startDiff = readCfg();
+            if (!running) difficulty = startDiff;
+            uiElems.diff.innerText = String(difficulty);
+            uiElems.eps.innerText = agent.epsilon.toFixed(3);
+            setHud(`Variáveis aplicadas. Nível ${difficulty}, epsilon ${agent.epsilon.toFixed(2)}.`);
+            log("Variáveis aplicadas.");
+        };
+
+        document.getElementById('btnScramble').onclick = () => {
+            if (running) return;
+            readCfg();
+            const moves = Math.max(1, parseInt(document.getElementById('vDiff').value, 10) || 1);
+            currentCube.reset();
+            for (let i = 0; i < moves; i++) currentCube.applyMove(MOVES[Math.floor(Math.random() * 12)]);
+            renderCube();
+            setHud(`Cubo embaralhado com ${moves} movimento(s). Arraste para olhar.`);
+            log(`Embaralhado manualmente (${moves}).`);
+        };
+
+
+        // --- LÓGICA DE REPLAY ---
+        uiElems.replay.onclick = () => {
+            if (!lastWin) return;
+            running = false; // Parar treino
+            enterReplayMode();
+        };
+
+        function enterReplayMode() {
+            replayMode = true;
+            replayIndex = 0;
+            uiElems.repControls.style.display = 'flex';
+            log(`ENTRANDO MODO REPLAY. Vitória gravada com ${lastWin.moves.length} movimentos.`);
+            updateReplayState();
+        }
+
+        function exitReplayMode() {
+            replayMode = false;
+            uiElems.repControls.style.display = 'none';
+        }
+
+        function updateReplayState() {
+            // Reconstruct state at replayIndex
+            // 1. Reset to start of win
+            currentCube.state = JSON.parse(JSON.stringify(lastWin.start));
+
+            // 2. Apply moves up to index
+            for (let i = 0; i < replayIndex; i++) {
+                currentCube.applyMove(lastWin.moves[i]);
+            }
+
+            renderCube();
+            uiElems.repStep.innerText = `${replayIndex} / ${lastWin.moves.length}`;
+
+            // Log current or next expected move
+            if (replayIndex < lastWin.moves.length) {
+                log(`Replay Step ${replayIndex}: Next Move is ${lastWin.moves[replayIndex]}`);
+            } else {
+                log(`Replay Complete. Cube Solved.`);
+            }
+        }
+
+        uiElems.btnPrev.onclick = () => {
+            if (replayIndex > 0) {
+                replayIndex--;
+                updateReplayState();
+            }
+        };
+
+        uiElems.btnNext.onclick = () => {
+            if (replayIndex < lastWin.moves.length) {
+                replayIndex++;
+                updateReplayState();
+            }
+        };
+
+    </script>
+</body>
+
+</html>

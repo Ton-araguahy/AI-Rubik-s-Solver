@@ -2,6 +2,14 @@
 import * as tf from '@tensorflow/tfjs';
 import { CubeState, Move } from './CubeState';
 
+export interface AgentConfig {
+    epsilon: number;
+    epsilonMin: number;
+    epsilonDecay: number;
+    gamma: number;
+    learningRate: number;
+}
+
 export class RLAgent {
     model: tf.Sequential;
     epsilon: number = 1.0; // Taxa de Exploração (1.0 = 100% aleatório)
@@ -10,8 +18,24 @@ export class RLAgent {
     gamma: number = 0.95; // Fator de Desconto (importância do futuro vs imediato)
     learningRate: number = 0.001; // Velocidade de aprendizado da rede
 
-    constructor() {
+    constructor(config?: Partial<AgentConfig>) {
+        if (config) this.applyConfig(config);
         this.model = this.createModel();
+    }
+
+    applyConfig(config: Partial<AgentConfig>) {
+        if (config.epsilon !== undefined) this.epsilon = config.epsilon;
+        if (config.epsilonMin !== undefined) this.epsilonMin = config.epsilonMin;
+        if (config.epsilonDecay !== undefined) this.epsilonDecay = config.epsilonDecay;
+        if (config.gamma !== undefined) this.gamma = config.gamma;
+        if (config.learningRate !== undefined && config.learningRate !== this.learningRate) {
+            this.learningRate = config.learningRate;
+            if (this.model) {
+                this.model.compile({ optimizer: tf.train.adam(this.learningRate), loss: 'meanSquaredError' });
+            }
+        } else if (config.learningRate !== undefined) {
+            this.learningRate = config.learningRate;
+        }
     }
 
     // Cria a arquitetura da Rede Neural (Cérebro do Agente)
