@@ -4,6 +4,7 @@ import { OrbitControls } from '@react-three/drei'
 import { Cube3D } from './components/Cube3D'
 import { TrainingLoop, TrainingStats, TrainConfig, defaultTrainConfig } from './logic/TrainingLoop'
 import { CubeState, Move } from './logic/CubeState'
+import { CollectiveBook, loadCollective, saveWin } from './logic/collective'
 
 const emptyStats: TrainingStats = {
     episode: 0,
@@ -23,6 +24,8 @@ function App() {
     const [stats, setStats] = useState<TrainingStats>(emptyStats);
     const [cfg, setCfg] = useState<TrainConfig>(defaultTrainConfig);
     const [status, setStatus] = useState('Cubo resolvido. Arraste para olhar, embaralhe ou inicie o treino.');
+    const [showIntro, setShowIntro] = useState(true);
+    const [book, setBook] = useState<CollectiveBook>({ model: 'dqn-1', wins: [], bestDepth: 0, updatedAt: null });
 
     const trainingLoopRef = useRef<TrainingLoop | null>(null);
 
@@ -33,8 +36,15 @@ function App() {
                 setCubeState(newCube.clone());
                 setVisualMove(move ?? null);
                 setVisualAnimationId((id) => id + 1);
+            },
+            (win) => {
+                saveWin(win).then((saved) => {
+                    setStatus(`Vitória salva no banco. Profundidade ${win.depth}. Banco: ${saved.count}.`);
+                    loadCollective().then(setBook);
+                }).catch(() => setStatus('Vitória ficou só neste navegador.'));
             }
         );
+        loadCollective().then(setBook);
         return () => {
             trainingLoopRef.current?.stop();
         };
@@ -95,6 +105,27 @@ function App() {
 
     return (
         <div className="w-full h-screen bg-brand-dark flex flex-col md:flex-row text-white overflow-hidden">
+            {showIntro && (
+                <div className="absolute inset-0 z-20 bg-black/80 flex items-center justify-center p-6">
+                    <div className="max-w-lg bg-gray-900 border border-brand-accent rounded-xl p-6 space-y-4">
+                        <p className="text-xs uppercase tracking-widest text-brand-neon">Modelo 1 de 1</p>
+                        <h2 className="text-3xl font-bold">DQN</h2>
+                        <p className="text-gray-300 text-sm">
+                            Esse é o primeiro cérebro. Ele não nasce sabendo a fórmula do cubo: embaralha, tenta, e guarda o que funcionou.
+                        </p>
+                        <p className="text-gray-300 text-sm">
+                            Vitória entra num banco compartilhado. A próxima pessoa que abrir o site começa com essas soluções. A meta é um único modelo que resolva mesmo embaralhado.
+                        </p>
+                        <p className="text-gray-400 text-xs">
+                            Banco agora: {book.wins.length} vitórias, maior mistura resolvida: {book.bestDepth || 0} movimentos.
+                            DQN sozinho não resolve um cubo aleatório de 20 giros. O banco é o que faz cada rodada partir mais esperta.
+                        </p>
+                        <button onClick={() => setShowIntro(false)} className="bg-brand-neon text-black font-bold px-4 py-2 rounded">
+                            Entrar no cubo
+                        </button>
+                    </div>
+                </div>
+            )}
             <div className="flex-1 h-[55vh] md:h-full relative min-h-[280px] bg-[#0f0f13]">
                 <Canvas
                     dpr={[1, 2]}
@@ -181,6 +212,10 @@ function App() {
                             <span className={stats.lastReward > 0 ? 'text-green-400' : 'text-red-400'}>
                                 {stats.lastReward.toFixed(2)}
                             </span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-gray-800">
+                            <span className="text-gray-400">Banco compartilhado:</span>
+                            <span>{book.wins.length} / nível {book.bestDepth || 0}</span>
                         </div>
                         <div className="flex justify-between py-1">
                             <span className="text-gray-400">Melhor:</span>

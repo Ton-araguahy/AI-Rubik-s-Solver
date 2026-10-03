@@ -58,15 +58,18 @@ export class TrainingLoop {
 
     private onStatsUpdate: (stats: TrainingStats) => void;
     private onCubeUpdate: (cube: CubeState, move?: Move) => void;
+    private onWin?: (win: { depth: number; moves: string[]; steps: number }) => void;
 
     constructor(
         onStatsUpdate: (stats: TrainingStats) => void,
-        onCubeUpdate: (cube: CubeState, move?: Move) => void
+        onCubeUpdate: (cube: CubeState, move?: Move) => void,
+        onWin?: (win: { depth: number; moves: string[]; steps: number }) => void
     ) {
         this.agent = new RLAgent(this.config);
         this.cube = new CubeState();
         this.onStatsUpdate = onStatsUpdate;
         this.onCubeUpdate = onCubeUpdate;
+        this.onWin = onWin;
         this.onCubeUpdate(this.cube);
         this.onStatsUpdate({ ...this.currentStats });
     }
@@ -129,6 +132,7 @@ export class TrainingLoop {
             let state = this.cube.clone();
             let totalReward = 0;
             let steps = 0;
+            const episodeMoves: string[] = [];
             const maxSteps = this.config.maxSteps;
             const experiences = [];
 
@@ -140,9 +144,15 @@ export class TrainingLoop {
                 nextState.applyMove(move);
 
                 let reward = -this.config.stepPenalty;
+                episodeMoves.push(move);
                 if (nextState.isSolved()) {
                     reward = this.config.solveReward;
                     this.currentStats.wins++;
+                    this.onWin?.({
+                        depth: this.config.scramble,
+                        moves: [...episodeMoves],
+                        steps: steps + 1,
+                    });
                 } else {
                     const currentCorrect = state.getCorrectFaceletsCount();
                     const nextCorrect = nextState.getCorrectFaceletsCount();
